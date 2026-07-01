@@ -174,7 +174,7 @@ export default function App() {
       food_id: food.id,
       logged_at: new Date().toISOString(),
     });
-    if (error) { setError("Couldn't log that food. Try again."); return; }
+    if (error) { setError(`Couldn't log that food. Details: ${error.message || JSON.stringify(error)}`); return; }
     setShowSearch(false);
     setQuery("");
     await loadData();

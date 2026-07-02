@@ -156,11 +156,11 @@ export default function App() {
     const [{ data: foodsData }, { data: logsData }] = await Promise.all([
       supabase.from("foods").select("*").order("name"),
       supabase
-        .from("food_logs")
-        .select("*, foods(name, portion_description, calories)")
-        .gte("logged_at", today() + "T00:00:00")
-        .lte("logged_at", today() + "T23:59:59")
-        .order("logged_at", { ascending: false }),
+  .from("food_logs")
+  .select("*, foods(name, portion_description, calories)")
+  .gte("logged_at", today() + "T00:00:00+01:00")
+  .lte("logged_at", today() + "T23:59:59+01:00")
+  .order("logged_at", { ascending: false }),
     ]);
     setFoods(foodsData || []);
     setLogs(logsData || []);

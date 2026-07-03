@@ -1,9 +1,10 @@
 import { useState, useEffect } from "react";
-import { Search, Plus, Trash2, LogOut, X, Utensils, Dumbbell } from "lucide-react";
+import { Search, Plus, Trash2, LogOut, X, Utensils, Dumbbell, Droplets } from "lucide-react";
 import { supabase } from "./supabaseClient";
 
 // ---------- Constants ----------
 const DAILY_GOAL = 2000;
+const WATER_GOAL = 8; // glasses per day
 
 const ACTIVITIES = [
   { name: "Running", emoji: "🏃", met: 9.8 },
@@ -205,8 +206,9 @@ export default function App() {
   const [foods, setFoods] = useState([]);
   const [logs, setLogs] = useState([]);
   const [workouts, setWorkouts] = useState([]);
+  const [waterLogs, setWaterLogs] = useState([]);
   const [query, setQuery] = useState("");
-  const [tab, setTab] = useState("food"); // "food" | "workout"
+  const [tab, setTab] = useState("food"); // "food" | "workout" | "water"
   const [showFoodSearch, setShowFoodSearch] = useState(false);
   const [showWorkoutModal, setShowWorkoutModal] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -222,7 +224,7 @@ export default function App() {
 
   async function loadData() {
     setLoading(true);
-    const [{ data: foodsData }, { data: logsData }, { data: workoutsData }] = await Promise.all([
+    const [{ data: foodsData }, { data: logsData }, { data: workoutsData }, { data: waterData }] = await Promise.all([
       supabase.from("foods").select("*").order("name"),
       supabase.from("food_logs")
         .select("*, foods(name, portion_description, calories)")
@@ -234,10 +236,16 @@ export default function App() {
         .gte("logged_at", today() + "T00:00:00+01:00")
         .lte("logged_at", today() + "T23:59:59+01:00")
         .order("logged_at", { ascending: false }),
+      supabase.from("water_logs")
+        .select("*")
+        .gte("logged_at", today() + "T00:00:00+01:00")
+        .lte("logged_at", today() + "T23:59:59+01:00")
+        .order("logged_at", { ascending: false }),
     ]);
     setFoods(foodsData || []);
     setLogs(logsData || []);
     setWorkouts(workoutsData || []);
+    setWaterLogs(waterData || []);
     setLoading(false);
   }
 
@@ -274,9 +282,24 @@ export default function App() {
     await loadData();
   }
 
+  async function logWater() {
+    const { error } = await supabase.from("water_logs").insert({
+      user_id: session.user.id,
+      glasses: 1,
+      logged_at: new Date().toISOString(),
+    });
+    if (error) { setError(`Couldn't log water. ${error.message}`); return; }
+    await loadData();
+  }
+
+  async function deleteWater(id) {
+    await supabase.from("water_logs").delete().eq("id", id);
+    await loadData();
+  }
+
   async function logout() {
     await supabase.auth.signOut();
-    setLogs([]); setFoods([]); setWorkouts([]);
+    setLogs([]); setFoods([]); setWorkouts([]); setWaterLogs([]);
   }
 
   if (session === undefined) {
@@ -286,6 +309,7 @@ export default function App() {
 
   const totalCalories = logs.reduce((sum, l) => sum + (l.foods?.calories || 0), 0);
   const totalBurned = workouts.reduce((sum, w) => sum + (w.calories_burned || 0), 0);
+  const totalGlasses = waterLogs.length;
   const filtered = foods.filter((f) => f.name.toLowerCase().includes(query.toLowerCase()));
 
   return (
@@ -335,6 +359,12 @@ export default function App() {
           onClick={() => setTab("workout")}
         >
           <Dumbbell size={15} /> Workout
+        </button>
+        <button
+          style={{ ...styles.tab, ...(tab === "water" ? styles.tabActive : {}) }}
+          onClick={() => setTab("water")}
+        >
+          <Droplets size={15} /> Water
         </button>
       </div>
 
@@ -421,7 +451,67 @@ export default function App() {
         )}
       </div>
 
-      {/* Food search modal */}
+        {tab === "water" && (
+          <>
+            <div style={styles.sectionRow}>
+              <h2 style={styles.sectionTitle}>Water intake</h2>
+              <button style={styles.addBtn} onClick={logWater}>
+                <Plus size={16} strokeWidth={2.5} /> Add glass
+              </button>
+            </div>
+
+            {/* Water progress */}
+            <div style={styles.waterCard}>
+              <div style={styles.waterCount}>
+                <span style={styles.waterNumber}>{totalGlasses}</span>
+                <span style={styles.waterSlash}>/</span>
+                <span style={styles.waterGoal}>{WATER_GOAL}</span>
+              </div>
+              <div style={styles.waterLabel}>glasses today</div>
+              <div style={styles.glassGrid}>
+                {Array.from({ length: WATER_GOAL }).map((_, i) => (
+                  <div
+                    key={i}
+                    style={{
+                      ...styles.glassIcon,
+                      ...(i < totalGlasses ? styles.glassIconFull : {}),
+                    }}
+                  >
+                    💧
+                  </div>
+                ))}
+              </div>
+              {totalGlasses >= WATER_GOAL && (
+                <div style={styles.waterComplete}>🎉 Daily goal reached!</div>
+              )}
+            </div>
+
+            {/* Water log list */}
+            {waterLogs.length > 0 && (
+              <div style={{ marginTop: 16 }}>
+                <div style={{ ...styles.fieldLabel, marginBottom: 10 }}>Today's log</div>
+                <div style={styles.logList}>
+                  {waterLogs.map((w, idx) => (
+                    <div key={w.id} style={styles.logRow}>
+                      <div style={styles.logInfo}>
+                        <div style={styles.logName}>💧 Glass {waterLogs.length - idx}</div>
+                        <div style={styles.logPortion}>
+                          {new Date(w.logged_at).toLocaleTimeString("en-NG", { hour: "2-digit", minute: "2-digit" })}
+                        </div>
+                      </div>
+                      <div style={styles.logRight}>
+                        <button style={styles.deleteBtn} onClick={() => deleteWater(w.id)}>
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </>
+        )}
+
       {showFoodSearch && (
         <div style={styles.overlay} onClick={() => { setShowFoodSearch(false); setQuery(""); }}>
           <div style={styles.modal} onClick={(e) => e.stopPropagation()}>
@@ -561,4 +651,14 @@ const styles = {
   authToggle: { background: "none", border: "none", color: GREEN, fontSize: 13.5, fontWeight: 600 },
   loadPage: { minHeight: "100vh", background: FOREST, display: "flex", alignItems: "center", justifyContent: "center" },
   loadDot: { width: 12, height: 12, borderRadius: "50%", background: "#F5E6C8" },
+  waterCard: { background: "#fff", border: "1px solid #E8E0D0", borderRadius: 16, padding: "20px", textAlign: "center", marginBottom: 8 },
+  waterCount: { display: "flex", alignItems: "baseline", justifyContent: "center", gap: 4 },
+  waterNumber: { fontFamily: FONT_MONO, fontSize: 48, fontWeight: 700, color: "#2196F3", lineHeight: 1 },
+  waterSlash: { fontFamily: FONT_MONO, fontSize: 28, color: "#c0b8a8" },
+  waterGoal: { fontFamily: FONT_MONO, fontSize: 28, color: "#8a9e8d" },
+  waterLabel: { fontSize: 12, color: "#8a9e8d", marginTop: 4, textTransform: "uppercase", letterSpacing: "0.05em" },
+  glassGrid: { display: "flex", flexWrap: "wrap", justifyContent: "center", gap: 6, marginTop: 16 },
+  glassIcon: { fontSize: 24, opacity: 0.2, transition: "opacity 0.2s ease" },
+  glassIconFull: { opacity: 1 },
+  waterComplete: { marginTop: 12, fontSize: 14, fontWeight: 600, color: GREEN },
 };

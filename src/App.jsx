@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Search, Plus, Trash2, LogOut, X, Utensils, Dumbbell, Droplets } from "lucide-react";
+import { Search, Plus, Trash2, LogOut, X, Utensils, Dumbbell, Droplets, Moon } from "lucide-react";
 import { supabase } from "./supabaseClient";
 
 // ---------- Constants ----------
@@ -207,8 +207,10 @@ export default function App() {
   const [logs, setLogs] = useState([]);
   const [workouts, setWorkouts] = useState([]);
   const [waterLogs, setWaterLogs] = useState([]);
+  const [sleepLogs, setSleepLogs] = useState([]);
+  const [showSleepModal, setShowSleepModal] = useState(false);
   const [query, setQuery] = useState("");
-  const [tab, setTab] = useState("food"); // "food" | "workout" | "water"
+  const [tab, setTab] = useState("food"); // "food" | "workout" | "water" | "sleep"
   const [showFoodSearch, setShowFoodSearch] = useState(false);
   const [showWorkoutModal, setShowWorkoutModal] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -224,7 +226,7 @@ export default function App() {
 
   async function loadData() {
     setLoading(true);
-    const [{ data: foodsData }, { data: logsData }, { data: workoutsData }, { data: waterData }] = await Promise.all([
+    const [{ data: foodsData }, { data: logsData }, { data: workoutsData }, { data: waterData }, { data: sleepData }] = await Promise.all([
       supabase.from("foods").select("*").order("name"),
       supabase.from("food_logs")
         .select("*, foods(name, portion_description, calories)")
@@ -241,11 +243,16 @@ export default function App() {
         .gte("logged_at", today() + "T00:00:00+01:00")
         .lte("logged_at", today() + "T23:59:59+01:00")
         .order("logged_at", { ascending: false }),
+      supabase.from("sleep_logs")
+        .select("*")
+        .order("logged_at", { ascending: false })
+        .limit(7),
     ]);
     setFoods(foodsData || []);
     setLogs(logsData || []);
     setWorkouts(workoutsData || []);
     setWaterLogs(waterData || []);
+    setSleepLogs(sleepData || []);
     setLoading(false);
   }
 
@@ -297,9 +304,27 @@ export default function App() {
     await loadData();
   }
 
+  async function logSleep(bedtime, wakeTime, quality) {
+    const { error } = await supabase.from("sleep_logs").insert({
+      user_id: session.user.id,
+      bedtime,
+      wake_time: wakeTime,
+      quality,
+      logged_at: new Date().toISOString(),
+    });
+    if (error) { setError(`Couldn't log sleep. ${error.message}`); return; }
+    setShowSleepModal(false);
+    await loadData();
+  }
+
+  async function deleteSleep(id) {
+    await supabase.from("sleep_logs").delete().eq("id", id);
+    await loadData();
+  }
+
   async function logout() {
     await supabase.auth.signOut();
-    setLogs([]); setFoods([]); setWorkouts([]); setWaterLogs([]);
+    setLogs([]); setFoods([]); setWorkouts([]); setWaterLogs([]); setSleepLogs([]);
   }
 
   if (session === undefined) {
@@ -348,23 +373,17 @@ export default function App() {
 
       {/* Tabs */}
       <div style={styles.tabs}>
-        <button
-          style={{ ...styles.tab, ...(tab === "food" ? styles.tabActive : {}) }}
-          onClick={() => setTab("food")}
-        >
+        <button style={{ ...styles.tab, ...(tab === "food" ? styles.tabActive : {}) }} onClick={() => setTab("food")}>
           <Utensils size={15} /> Food
         </button>
-        <button
-          style={{ ...styles.tab, ...(tab === "workout" ? styles.tabActive : {}) }}
-          onClick={() => setTab("workout")}
-        >
+        <button style={{ ...styles.tab, ...(tab === "workout" ? styles.tabActive : {}) }} onClick={() => setTab("workout")}>
           <Dumbbell size={15} /> Workout
         </button>
-        <button
-          style={{ ...styles.tab, ...(tab === "water" ? styles.tabActive : {}) }}
-          onClick={() => setTab("water")}
-        >
+        <button style={{ ...styles.tab, ...(tab === "water" ? styles.tabActive : {}) }} onClick={() => setTab("water")}>
           <Droplets size={15} /> Water
+        </button>
+        <button style={{ ...styles.tab, ...(tab === "sleep" ? styles.tabActive : {}) }} onClick={() => setTab("sleep")}>
+          <Moon size={15} /> Sleep
         </button>
       </div>
 
@@ -512,6 +531,51 @@ export default function App() {
           </>
         )}
 
+        {tab === "sleep" && (
+          <>
+            <div style={styles.sectionRow}>
+              <h2 style={styles.sectionTitle}>Sleep tracker</h2>
+              <button style={styles.addBtn} onClick={() => setShowSleepModal(true)}>
+                <Plus size={16} strokeWidth={2.5} /> Log sleep
+              </button>
+            </div>
+
+            {sleepLogs.length === 0 ? (
+              <div style={styles.emptyState}>
+                <div style={styles.emptyEmoji}>🌙</div>
+                <div style={styles.emptyText}>No sleep logged yet.</div>
+                <div style={styles.emptyHint}>Tap "Log sleep" to record last night's sleep.</div>
+              </div>
+            ) : (
+              <div style={styles.logList}>
+                {sleepLogs.map((s) => {
+                  const bed = new Date(s.bedtime);
+                  const wake = new Date(s.wake_time);
+                  const hours = ((wake - bed) / (1000 * 60 * 60)).toFixed(1);
+                  const qualityEmoji = s.quality === "Great" ? "😴" : s.quality === "Okay" ? "😐" : "😞";
+                  return (
+                    <div key={s.id} style={styles.logRow}>
+                      <div style={styles.logInfo}>
+                        <div style={styles.logName}>{qualityEmoji} {s.quality} sleep</div>
+                        <div style={styles.logPortion}>
+                          {bed.toLocaleTimeString("en-NG", { hour: "2-digit", minute: "2-digit" })} →{" "}
+                          {wake.toLocaleTimeString("en-NG", { hour: "2-digit", minute: "2-digit" })}
+                        </div>
+                      </div>
+                      <div style={styles.logRight}>
+                        <div style={{ ...styles.logCal, color: "#6B4FBB" }}>{hours}h</div>
+                        <button style={styles.deleteBtn} onClick={() => deleteSleep(s.id)}>
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </>
+        )}
+
       {showFoodSearch && (
         <div style={styles.overlay} onClick={() => { setShowFoodSearch(false); setQuery(""); }}>
           <div style={styles.modal} onClick={(e) => e.stopPropagation()}>
@@ -554,6 +618,93 @@ export default function App() {
       {showWorkoutModal && (
         <WorkoutModal onClose={() => setShowWorkoutModal(false)} onSave={logWorkout} />
       )}
+
+      {showSleepModal && (
+        <SleepModal onClose={() => setShowSleepModal(false)} onSave={logSleep} />
+      )}
+    </div>
+  );
+}
+
+// ---------- Sleep Modal ----------
+function SleepModal({ onClose, onSave }) {
+  const [bedtime, setBedtime] = useState("");
+  const [wakeTime, setWakeTime] = useState("");
+  const [quality, setQuality] = useState("Okay");
+  const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  async function submit() {
+    if (!bedtime || !wakeTime) { setError("Enter both bedtime and wake time."); return; }
+    const bed = new Date(bedtime);
+    const wake = new Date(wakeTime);
+    if (wake <= bed) { setError("Wake time must be after bedtime."); return; }
+    setError("");
+    setSubmitting(true);
+    await onSave(bed.toISOString(), wake.toISOString(), quality);
+    setSubmitting(false);
+  }
+
+  return (
+    <div style={styles.overlay} onClick={onClose}>
+      <div style={styles.modal} onClick={(e) => e.stopPropagation()}>
+        <div style={styles.modalHeader}>
+          <h3 style={styles.modalTitle}>Log sleep</h3>
+          <button style={styles.closeBtn} onClick={onClose}><X size={18} /></button>
+        </div>
+        <div style={{ padding: "16px 20px", display: "flex", flexDirection: "column", gap: 16 }}>
+          <div>
+            <div style={styles.fieldLabel}>Bedtime</div>
+            <input
+              style={styles.durationInput}
+              type="datetime-local"
+              value={bedtime}
+              onChange={(e) => setBedtime(e.target.value)}
+            />
+          </div>
+          <div>
+            <div style={styles.fieldLabel}>Wake time</div>
+            <input
+              style={styles.durationInput}
+              type="datetime-local"
+              value={wakeTime}
+              onChange={(e) => setWakeTime(e.target.value)}
+            />
+          </div>
+          <div>
+            <div style={styles.fieldLabel}>Sleep quality</div>
+            <div style={{ display: "flex", gap: 8 }}>
+              {["Poor", "Okay", "Great"].map((q) => (
+                <button
+                  key={q}
+                  onClick={() => setQuality(q)}
+                  style={{
+                    flex: 1,
+                    padding: "10px 6px",
+                    border: quality === q ? "2px solid #6B4FBB" : "1px solid #E8E0D0",
+                    borderRadius: 10,
+                    background: quality === q ? "#EDE8F8" : "#fff",
+                    color: quality === q ? "#6B4FBB" : "#8a9e8d",
+                    fontWeight: 600,
+                    fontSize: 13,
+                    fontFamily: "'Syne', sans-serif",
+                  }}
+                >
+                  {q === "Great" ? "😴" : q === "Okay" ? "😐" : "😞"} {q}
+                </button>
+              ))}
+            </div>
+          </div>
+          {error && <div style={styles.errorBanner}>{error}</div>}
+          <button
+            style={{ ...styles.authBtn, marginBottom: 0, background: "#6B4FBB" }}
+            onClick={submit}
+            disabled={submitting}
+          >
+            {submitting ? "Saving…" : "Save sleep log"}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

@@ -344,7 +344,7 @@ export default function App() {
       {/* Header */}
       <header style={styles.header}>
         <div>
-          <div style={styles.eyebrow}>CHOPTRACK</div>
+         <div style={styles.eyebrow}>VITAFIT</div> 
           <div style={styles.dateLabel}>{formatDate(new Date())}</div>
         </div>
         <button style={styles.logoutBtn} onClick={logout}><LogOut size={18} /></button>
